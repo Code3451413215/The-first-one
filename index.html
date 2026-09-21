@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A Convergent Web Matrix</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#000; font-family:"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+  #canvas-container { position:fixed; inset:0; cursor:grab; }
+  #canvas-container.dragging { cursor:grabbing; }
+
+  /* 顶部渐变光晕 */
+  #glow-top { position:fixed; top:0; left:0; right:0; height:300px; pointer-events:none;
+    background:radial-gradient(ellipse 60% 100% at 50% 0%, rgba(255,215,130,0.05), transparent 70%); }
+
+  /* 左上信息面板 */
+  #info-panel { position:fixed; top:34px; left:36px; max-width:460px; padding:22px 30px 24px 28px;
+    background:rgba(10,10,14,0.55); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+    border-left:3px solid #ff5a1e; border-radius:4px; color:#eee; user-select:none; pointer-events:none;
+    transition:border-color .8s; }
+  #info-panel .tag { font-size:13px; letter-spacing:6px; color:#9a9a9a; margin-bottom:12px; }
+  #info-panel h1 { font-size:26px; font-weight:700; color:#fff; letter-spacing:.5px;
+    text-shadow:0 0 18px rgba(255,220,150,.35); margin-bottom:10px; line-height:1.25; }
+  #info-panel p { font-size:13.5px; line-height:1.65; color:#c9c9c9; }
+
+  /* 右上圆点 */
+  #dots { position:fixed; top:30px; right:40px; display:flex; gap:12px; pointer-events:none; }
+  #dots span { width:12px; height:12px; border-radius:50%; opacity:.28; transition:all .6s; }
+  #dots span.active { opacity:1; box-shadow:0 0 12px currentColor; }
+  .dot-r { background:#ff5f56; color:#ff5f56; }
+  .dot-g { background:#27c93f; color:#27c93f; }
+  .dot-b { background:#2f86eb; color:#2f86eb; }
+
+  /* 底部提示 */
+  #hint { position:fixed; bottom:96px; left:50%; transform:translateX(-50%);
+    font-size:13px; letter-spacing:3px; color:rgba(255,255,255,0.28); pointer-events:none;
+    animation:hintPulse 3s ease-in-out infinite; white-space:nowrap; }
+  @keyframes hintPulse { 0%,100%{opacity:.35;} 50%{opacity:.9;} }
+
+  /* 底部按钮 */
+  #controls { position:fixed; bottom:34px; left:50%; transform:translateX(-50%); display:flex; gap:34px; z-index:10; }
+  .btn { padding:11px 34px; font-size:14.5px; letter-spacing:1px; color:#e8e8e8;
+    background:rgba(22,22,30,0.75); border:1px solid rgba(255,255,255,0.22); border-radius:7px;
+    cursor:pointer; backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+    transition:all .25s; user-select:none; font-family:inherit; }
+  .btn:hover { border-color:rgba(255,210,130,.7); color:#ffe9c0; box-shadow:0 0 18px rgba(255,200,110,.18); }
+  .btn:active { transform:scale(.96); }
+  .btn.pulse { border-color:#ffb84d; box-shadow:0 0 24px rgba(255,180,80,.55); }
+
+  @media (max-width:640px){
+    #info-panel{ left:16px; top:16px; max-width:78vw; padding:14px 18px; }
+    #info-panel h1{font-size:19px;} #info-panel p{font-size:11.5px;}
+    #controls{ gap:12px; } .btn{ padding:9px 18px; font-size:12.5px; }
+    #hint{ bottom:88px; font-size:11px; }
+  }
+</style>
+<base target="_blank">
+</head>
+<body>
+<div id="canvas-container"></div>
+<div id="glow-top"></div>
+
+<div id="info-panel">
+  <div class="tag">A CONVERGENT WEB MATRIX</div>
+  <h1 id="shape-title">Quantum Gyroid Lattice</h1>
+  <p id="shape-desc">An intricate 3D gyroidal connection network transferring multi-layered quantum data state flows through non-euclidean space topology.</p>
+</div>
+
+<div id="dots">
+  <span class="dot-r active"></span><span class="dot-g"></span><span class="dot-b"></span>
+</div>
+
+<div id="hint">点 击 任 意 处 触 发 量 子 震 荡 波 纹</div>
+
+<div id="controls">
+  <button class="btn" id="btn-next">Next Shape</button>
+  <button class="btn" id="btn-spin">Auto Spin: OFF</button>
+  <button class="btn" id="btn-reset">Reset View</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ================= 配置 ================= */
+const SHAPES = [
+  {
+    title: "Quantum Gyroid Lattice",
+    desc: "An intricate 3D gyroidal connection network transferring multi-layered quantum data state flows through non-euclidean space topology.",
+    accent: "#ff5a1e", dot: 0
+  },
+  {
+    title: "Celestial Trefoil Multiverse",
+    desc: "A continuous interlocking orbital matrix synchronized in an elegant 3D Trefoil-Knot formulation, representing multi-dimensional timeline loops.",
+    accent: "#ffb020", dot: 1
+  },
+  {
+    title: "Cosmic Neural Mandala",
+    desc: "A nested sphere system capturing holographic neural activity, cycling dynamic frequencies from warm matrices into deep cosmic resonances.",
+    accent: "#e05ad0", dot: 2
+  }
+];
+
+/* ================= 基础场景 ================= */
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x000000, 0.045);
+
+const camera = new THREE.PerspectiveCamera(55, innerWidth/innerHeight, 0.1, 100);
+const CAM_HOME = { x:0, y:0, z:8.2 };
+camera.position.set(CAM_HOME.x, CAM_HOME.y, CAM_HOME.z);
+
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+container.appendChild(renderer.domElement);
+
+/* 发光圆点纹理 */
+function makeDotTexture(){
+  const c = document.createElement('canvas'); c.width = c.height = 64;
+  const ctx = c.getContext('2d');
+  const g = ctx.createRadialGradient(32,32,0,32,32,32);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.25, 'rgba(255,244,214,0.9)');
+  g.addColorStop(0.6, 'rgba(255,220,150,0.25)');
+  g.addColorStop(1, 'rgba(255,200,100,0)');
+  ctx.fillStyle = g; ctx.fillRect(0,0,64,64);
+  const t = new THREE.CanvasTexture(c); return t;
+}
+const dotTexture = makeDotTexture();
+
+/* ================= 粒子网络组 ================= */
+const network = new THREE.Group();
+scene.add(network);
+
+let pointsObj = null, linesObj = null;
+let basePos = null;       // Float32Array 原始坐标
+let pointColors = null;
+let currentShape = 0;
+
+/* 三种形态生成器 */
+function genGyroid(n){
+  const pts = [], cols = [];
+  const cA = new THREE.Color(0xffd98a), cB = new THREE.Color(0xfff6dd), cC = new THREE.Color(0xd8b46a);
+  let tries = 0;
+  while(pts.length/3 < n && tries < n*300){
+    tries++;
+    const x=(Math.random()*2-1)*3.2, y=(Math.random()*2-1)*3.2, z=(Math.random()*2-1)*3.2;
+    const f = Math.sin(x)*Math.cos(y)+Math.sin(y)*Math.cos(z)+Math.sin(z)*Math.cos(x);
+    if(Math.abs(f) < 0.09){
+      pts.push(x*1.05, y*1.05, z*1.05);
+      const r = Math.random();
+      const c = r<0.6?cA:(r<0.85?cB:cC);
+      cols.push(c.r, c.g, c.b);
+    }
+  }
+  return { positions:new Float32Array(pts), colors:new Float32Array(cols), linkDist:0.52, jitter:0.02 };
+}
+
+function genTrefoil(n){
+  const pts=[], cols=[];
+  const cA=new THREE.Color(0xfff2b0), cB=new THREE.Color(0xffe066), cC=new THREE.Color(0xffffff);
+  for(let i=0;i<n;i++){
+    const t = (i/n)*Math.PI*2 + Math.random()*0.02;
+    const x = Math.sin(t)+2*Math.sin(2*t);
+    const y = Math.cos(t)-2*Math.cos(2*t);
+    const z = -Math.sin(3*t);
+    const j = 0.16;
+    pts.push(x*0.82+(Math.random()-0.5)*j, y*0.82+(Math.random()-0.5)*j, z*0.82+(Math.random()-0.5)*j);
+    const r=Math.random(); const c=r<0.55?cA:(r<0.85?cB:cC);
+    cols.push(c.r,c.g,c.b);
+  }
+  return { positions:new Float32Array(pts), colors:new Float32Array(cols), linkDist:0.42, jitter:0.01 };
+}
+
+function genMandala(n){
+  const pts=[], cols=[];
+  const outer=n*0.55|0, inner=n-outer;
+  const cO1=new THREE.Color(0xd06ae0), cO2=new THREE.Color(0xf0a8f5), cI1=new THREE.Color(0xffd76a), cI2=new THREE.Color(0xffedb8);
+  const rndDir = (r)=>{ const u=Math.random()*2-1, th=Math.random()*Math.PI*2, s=Math.sqrt(1-u*u);
+    return [r*s*Math.cos(th), r*u, r*s*Math.sin(th)]; };
+  for(let i=0;i<outer;i++){ // 外层紫色球壳
+    const p = rndDir(2.6+(Math.random()-0.5)*0.06);
+    pts.push(p[0],p[1],p[2]);
+    const c=Math.random()<0.6?cO1:cO2; cols.push(c.r,c.g,c.b);
+  }
+  for(let i=0;i<inner;i++){ // 内层金色球
+    const p = rndDir(1.35+(Math.random()-0.5)*0.06);
+    pts.push(p[0],p[1],p[2]);
+    const c=Math.random()<0.6?cI1:cI2; cols.push(c.r,c.g,c.b);
+  }
+  return { positions:new Float32Array(pts), colors:new Float32Array(cols), linkDist:0.5, jitter:0.02 };
+}
+
+const GENERATORS = [genGyroid, genTrefoil, genMandala];
+
+function buildShape(idx){
+  if(pointsObj){ network.remove(pointsObj); pointsObj.geometry.dispose(); pointsObj.material.dispose(); }
+  if(linesObj){ network.remove(linesObj); linesObj.geometry.dispose(); linesObj.material.dispose(); }
+
+  const data = GENERATORS[idx](900);
+  basePos = data.positions;
+  pointColors = data.colors;
+  const n = basePos.length/3;
+
+  /* 点 */
+  const pGeo = new THREE.BufferGeometry();
+  pGeo.setAttribute('position', new THREE.BufferAttribute(basePos.slice(), 3));
+  pGeo.setAttribute('color', new THREE.BufferAttribute(pointColors, 3));
+  const pMat = new THREE.PointsMaterial({
+    size:0.16, map:dotTexture, vertexColors:true, transparent:true, opacity:0.95,
+    blending:THREE.AdditiveBlending, depthWrite:false, sizeAttenuation:true
+  });
+  pointsObj = new THREE.Points(pGeo, pMat);
+  network.add(pointsObj);
+
+  /* 连线（近邻） */
+  const lp = [], lc = [];
+  const maxLinks = 5;
+  const linkD = data.linkDist, linkD2 = linkD*linkD;
+  const counts = new Uint8Array(n);
+  for(let i=0;i<n;i++){
+    const xi=basePos[i*3], yi=basePos[i*3+1], zi=basePos[i*3+2];
+    for(let j=i+1;j<n;j++){
+      if(counts[i]>=maxLinks) break;
+      if(counts[j]>=maxLinks) continue;
+      const dx=basePos[j*3]-xi, dy=basePos[j*3+1]-yi, dz=basePos[j*3+2]-zi;
+      const d2=dx*dx+dy*dy+dz*dz;
+      if(d2<linkD2){
+        lp.push(xi,yi,zi, basePos[j*3],basePos[j*3+1],basePos[j*3+2]);
+        lc.push(pointColors[i*3]*0.55,pointColors[i*3+1]*0.55,pointColors[i*3+2]*0.55,
+                pointColors[j*3]*0.55,pointColors[j*3+1]*0.55,pointColors[j*3+2]*0.55);
+        counts[i]++; counts[j]++;
+      }
+    }
+  }
+  const lGeo = new THREE.BufferGeometry();
+  lGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(lp), 3));
+  lGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(lc), 3));
+  const lMat = new THREE.LineBasicMaterial({ vertexColors:true, transparent:true, opacity:0.32, blending:THREE.AdditiveBlending, depthWrite:false });
+  linesObj = new THREE.LineSegments(lGeo, lMat);
+  network.add(linesObj);
+
+  /* 入场淡入 */
+  fadeIn = 0;
+  updatePanel(idx);
+}
+
+function updatePanel(idx){
+  const s = SHAPES[idx];
+  document.getElementById('shape-title').textContent = s.title;
+  document.getElementById('shape-desc').textContent = s.desc;
+  document.getElementById('info-panel').style.borderLeftColor = s.accent;
+  document.querySelectorAll('#dots span').forEach((d,i)=>d.classList.toggle('active', i===s.dot));
+}
+
+/* ================= 交互：拖拽 / 缩放 ================= */
+let dragging=false, lastX=0, lastY=0;
+let targetRotX=0.35, targetRotY=0, curRotX=0.35, curRotY=0;
+let camZ = CAM_HOME.z, targetCamZ = CAM_HOME.z;
+let autoSpin=false;
+let fadeIn=1;
+
+container.addEventListener('pointerdown', e=>{
+  dragging=true; lastX=e.clientX; lastY=e.clientY;
+  container.classList.add('dragging');
+});
+window.addEventListener('pointermove', e=>{
+  if(!dragging) return;
+  targetRotY += (e.clientX-lastX)*0.005;
+  targetRotX += (e.clientY-lastY)*0.005;
+  targetRotX = Math.max(-1.4, Math.min(1.4, targetRotX));
+  lastX=e.clientX; lastY=e.clientY;
+});
+window.addEventListener('pointerup', ()=>{ dragging=false; container.classList.remove('dragging'); });
+container.addEventListener('wheel', e=>{
+  e.preventDefault();
+  targetCamZ = Math.max(4.2, Math.min(15, targetCamZ + e.deltaY*0.008));
+}, { passive:false });
+
+/* ================= 点击波纹 ================= */
+let ripples = [];
+container.addEventListener('click', e=>{
+  const ndc = new THREE.Vector2((e.clientX/innerWidth)*2-1, -(e.clientY/innerHeight)*2+1);
+  const ray = new THREE.Raycaster(); ray.setFromCamera(ndc, camera);
+  const plane = new THREE.Plane(new THREE.Vector3(0,0,1), 0);
+  const pt = new THREE.Vector3();
+  ray.ray.intersectPlane(plane, pt);
+  if(!pt) pt.set(0,0,0);
+  ripples.push({ origin:pt.clone(), t0:performance.now()/1000 });
+  if(ripples.length>4) ripples.shift();
+  pulseBtn(document.getElementById('btn-reset'));
+});
+
+/* ================= 按钮 ================= */
+document.getElementById('btn-next').addEventListener('click', e=>{
+  e.stopPropagation();
+  currentShape = (currentShape+1)%SHAPES.length;
+  buildShape(currentShape);
+  pulseBtn(e.target);
+});
+const spinBtn = document.getElementById('btn-spin');
+spinBtn.addEventListener('click', e=>{
+  e.stopPropagation();
+  autoSpin = !autoSpin;
+  spinBtn.textContent = 'Auto Spin: ' + (autoSpin?'ON':'OFF');
+  pulseBtn(spinBtn);
+});
+document.getElementById('btn-reset').addEventListener('click', e=>{
+  e.stopPropagation();
+  targetRotX=0.35; targetRotY=0; targetCamZ=CAM_HOME.z;
+  ripples=[];
+  pulseBtn(e.target);
+});
+document.getElementById('controls').addEventListener('click', e=>e.stopPropagation());
+
+function pulseBtn(btn){
+  btn.classList.add('pulse');
+  setTimeout(()=>btn.classList.remove('pulse'), 450);
+}
+
+/* ================= 动画循环 ================= */
+const clock = new THREE.Clock();
+function animate(){
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+
+  /* 旋转缓动 + 自动旋转 */
+  if(autoSpin) targetRotY += 0.0035;
+  curRotX += (targetRotX-curRotX)*0.07;
+  curRotY += (targetRotY-curRotY)*0.07;
+  network.rotation.x = curRotX + Math.sin(t*0.4)*0.03;
+  network.rotation.y = curRotY;
+  camZ += (targetCamZ-camZ)*0.08;
+  camera.position.z = camZ;
+
+  /* 波纹位移 */
+  const now = performance.now()/1000;
+  ripples = ripples.filter(r => now - r.t0 < 3.2);
+  const posAttr = pointsObj.geometry.attributes.position;
+  const lPosAttr = linesObj.geometry.attributes.position;
+  const arr = posAttr.array, lArr = lPosAttr.array;
+
+  // 点
+  for(let i=0;i<arr.length;i+=3){
+    let dx=0,dy=0,dz=0;
+    for(const r of ripples){
+      const age = now - r.t0;
+      const ox = basePos[i]-r.origin.x, oy = basePos[i+1]-r.origin.y, oz = basePos[i+2]-r.origin.z;
+      const d = Math.sqrt(ox*ox+oy*oy+oz*oz)+1e-5;
+      const wave = Math.sin(d*3.0 - age*7.0) * Math.exp(-Math.abs(d-age*2.4)*1.4) * Math.exp(-age*1.1) * 0.38;
+      dx += ox/d*wave; dy += oy/d*wave; dz += oz/d*wave;
+    }
+    // 轻微呼吸
+    const br = 1 + Math.sin(t*0.9 + i)*0.006;
+    arr[i]   = basePos[i]*br   + dx;
+    arr[i+1] = basePos[i+1]*br + dy;
+    arr[i+2] = basePos[i+2]*br + dz;
+  }
+  posAttr.needsUpdate = true;
+
+  // 线端点直接从位移后的点同步（保证点线一体）
+  rebuildLinesFromPoints();
+  lPosAttr.needsUpdate = true;
+
+  /* 入场淡入 */
+  if(fadeIn < 1){
+    fadeIn = Math.min(1, fadeIn + 0.02);
+    pointsObj.material.opacity = fadeIn*0.95;
+    linesObj.material.opacity = fadeIn*0.32;
+    const s = 0.6 + 0.4*fadeIn;
+    network.scale.set(s,s,s);
+  }
+
+  /* 微光闪烁 */
+  pointsObj.material.size = 0.16 + Math.sin(t*2.2)*0.012;
+
+  renderer.render(scene, camera);
+}
+
+/* 线端点从点位移结果复制（保证线与点同步） */
+const lineIndexMap = { built:false, idx: null };
+function rebuildLinesFromPoints(){
+  if(!lineIndexMap.built){
+    // 建立线端点 -> 点索引映射（按坐标匹配）
+    const n = basePos.length/3;
+    const key = (x,y,z)=> (x*1000|0)+'_'+(y*1000|0)+'_'+(z*1000|0);
+    const map = new Map();
+    for(let i=0;i<n;i++){
+      map.set(key(basePos[i*3],basePos[i*3+1],basePos[i*3+2]), i);
+    }
+    const lArr = linesObj.geometry.attributes.position.array;
+    lineIndexMap.base = new Float32Array(lArr); // 记录线端点基线坐标
+    lineIndexMap.idx = new Int32Array(lArr.length/3);
+    for(let k=0;k<lArr.length/3;k++){
+      lineIndexMap.idx[k] = map.get(key(lArr[k*3],lArr[k*3+1],lArr[k*3+2])) ?? -1;
+    }
+    lineIndexMap.built = true;
+    return;
+  }
+  const pArr = pointsObj.geometry.attributes.position.array;
+  const lArr = linesObj.geometry.attributes.position.array;
+  const idx = lineIndexMap.idx;
+  const base = lineIndexMap.base;
+  const now2 = performance.now()/1000;
+  for(let k=0;k<idx.length;k++){
+    const pi = idx[k];
+    if(pi>=0){ lArr[k*3]=pArr[pi*3]; lArr[k*3+1]=pArr[pi*3+1]; lArr[k*3+2]=pArr[pi*3+2]; continue; }
+    // 回退：从基线坐标直接计算波纹位移
+    const bx=base[k*3], by=base[k*3+1], bz=base[k*3+2];
+    let dx=0,dy=0,dz=0;
+    for(const r of ripples){
+      const age = now2 - r.t0;
+      const ox=bx-r.origin.x, oy=by-r.origin.y, oz=bz-r.origin.z;
+      const d=Math.sqrt(ox*ox+oy*oy+oz*oz)+1e-5;
+      const w=Math.sin(d*3.0-age*7.0)*Math.exp(-Math.abs(d-age*2.4)*1.4)*Math.exp(-age*1.1)*0.38;
+      dx+=ox/d*w; dy+=oy/d*w; dz+=oz/d*w;
+    }
+    lArr[k*3]=bx+dx; lArr[k*3+1]=by+dy; lArr[k*3+2]=bz+dz;
+  }
+}
+
+/* 切换形状时重置映射 */
+const _buildShape = buildShape;
+buildShape = function(idx){
+  lineIndexMap.built = false;
+  _buildShape(idx);
+};
+
+window.addEventListener('resize', ()=>{
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+buildShape(0);
+animate();
+</script>
+</body>
+</html>
